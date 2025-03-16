@@ -1,0 +1,11 @@
+streamlit
+easyocr
+google-generativeai
+torch
+numpy
+pillow
+transformers
+langdetect
+googletrans==4.0.0-rc1
+SpeechRecognition
+pyttsx3
