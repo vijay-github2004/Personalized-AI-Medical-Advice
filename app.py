@@ -8,17 +8,15 @@ from transformers import pipeline
 from langdetect import detect
 from googletrans import Translator
 import speech_recognition as sr
-import pyttsx3
+import os
 
 # ✅ Configure Gemini API
 GEMINI_API_KEY = "AIzaSyB6wxK4bXYVc2P-6Xmrw8iJxwryMF7pOVc"  # Replace with actual API key
 genai.configure(api_key=GEMINI_API_KEY)
 
-
 # ✅ Load EasyOCR reader
 reader = easyocr.Reader(['en'])  # Recognizes text only in English
 translator = Translator()
-engine = pyttsx3.init()
 recognizer = sr.Recognizer()
 
 # ✅ Medicine Keywords for Detection
@@ -62,22 +60,21 @@ def get_medicine_details(medicine_name, patient_info, lang="en"):
         - Current Illness: {patient_info['Current Disease']}
         - Other Tablets Consumed Regularly: {patient_info['Other Tablets']}
         
-        Based on these details, provide a detailed yet easy-to-understand response covering:
+        Provide a detailed yet easy-to-understand response covering:
         - How {medicine_name} works and what it is used for
         - Recommended dosage and administration guidelines
-        - Possible side effects to be aware of
-        - Potential interactions with other medications the patient is taking
-        - Additional precautions or suggestions for the patient's well-being
-        - other tablet  sugges for this condition
-        
-        Ensure the explanation is patient-friendly and easy to comprehend.
+        - Possible side effects
+        - Interactions with other medications
+        - Additional precautions
+        - Alternative medicines
+
+        Ensure the explanation is patient-friendly.
         """
         response = model.generate_content(prompt)
         translated_response = translator.translate(response.text, dest=lang).text
         return translated_response if translated_response else "No details available."
     except Exception as e:
         return f"❌ Error fetching details: {e}"
-
 
 # ✅ Function: Voice Input
 def voice_input():
@@ -95,10 +92,9 @@ def voice_input():
         except Exception as e:
             return f"Error: {e}"
 
-# ✅ Function: Text-to-Speech
-def speak_text(text):
-    engine.say(text)
-    engine.runAndWait()
+# ✅ Function: Text-to-Speech using espeak
+def speak_text(text, lang="en"):
+    os.system(f"espeak -v {lang} '{text}'")
 
 # ✅ Function: Chatbot Response
 def chatbot_response(user_input, medicine_name, patient_info, lang="en"):
@@ -118,18 +114,17 @@ def chatbot_response(user_input, medicine_name, patient_info, lang="en"):
         - Other Medications: {patient_info.get('Other Tablets', 'None')}
 
         **Instructions for AI:**
-        - Directly answer the patient's question.
+        - Answer the patient's question accurately.
         - Use only the provided medicine and patient details.
-        - Do not generate extra information or general medical advice.
+        - Avoid general medical advice.
 
-        Now, generate the most accurate and relevant response based on the question.
+        Now, generate the most accurate and relevant response.
         """
         response = model.generate_content(prompt)
         return translate_text(response.text, lang)
 
     except Exception as e:
         return f"❌ Error: {e}"
-
 
 # ✅ Streamlit UI
 st.title("Personalized AI Medical Advice")
@@ -181,25 +176,24 @@ if 'image' in locals():
             "Current Disease": get_input(translated_labels['Current Disease']),
             "Other Tablets": get_input(translated_labels['Other Tablets'])
         }
+if st.button("🔎 Get Medicine Details"):
+    details = get_medicine_details(medicine_name, patient_info, user_lang)
+    st.subheader("📋 Medicine Details & Suitability")
+    st.write(details)
 
-        if st.button("🔎 Get Medicine Details"):
-            details = get_medicine_details(medicine_name, patient_info, user_lang)
-            st.subheader("📋 Medicine Details & Suitability")
-            st.write(details)
-            if st.button("🔊 Read Aloud"):
-                speak_text(details)
+    # Unique key to avoid button conflict
+    if st.button("🔊 Read Aloud", key="read_medicine"):
+        os.system(f'espeak -v {user_lang} "{details}"')
 
-
-  # ✅ Chatbot Interaction
+        # ✅ Chatbot Interaction
         user_query = st.text_input("💬 Ask AI Doctor")
         if st.button("Ask Now"):
             chatbot_reply = chatbot_response(user_query, medicine_name, patient_info, user_lang)
             st.write("🤖 AI Doctor:", chatbot_reply)
             if st.button("🔊 Read Chatbot Response"):
-                speak_text(chatbot_reply)
-
+                speak_text(chatbot_reply, user_lang)
 
 # Project Credits at the Bottom
-st.markdown("---")  # Adds a separator line
+st.markdown("---")  
 st.markdown("### **Project Developed By:**")
-st.markdown(" **VIJAY P.K. VIGNESH, and MOHAMMED FAIZAL**")
+st.markdown(" **VIJAY P.K., VIGNESH, and MOHAMMED FAIZAL**")
