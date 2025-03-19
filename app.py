@@ -10,6 +10,7 @@ from googletrans import Translator
 import speech_recognition as sr
 import os
 
+
 # ✅ Configure Gemini API
 GEMINI_API_KEY = "AIzaSyB6wxK4bXYVc2P-6Xmrw8iJxwryMF7pOVc"  # Replace with actual API key
 genai.configure(api_key=GEMINI_API_KEY)
@@ -18,10 +19,14 @@ genai.configure(api_key=GEMINI_API_KEY)
 reader = easyocr.Reader(['en'])  # Recognizes text only in English
 translator = Translator()
 recognizer = sr.Recognizer()
-
 # ✅ Medicine Keywords for Detection
-MEDICINE_KEYWORDS = ["Paracetamol", "Ibuprofen", "Aspirin", "Metformin", "Amoxicillin",
-                     "Ciprofloxacin", "Azithromycin", "Cetirizine", "Dolo", "Combiflam"]
+MEDICINE_KEYWORDS = [
+    "Paracetamol", "Ibuprofen", "Aspirin", "Metformin", "Amoxicillin",
+    "Ciprofloxacin", "Azithromycin", "Cetirizine", "Dolo", "Combiflam",
+    "Happi", "Ursox 300 Tablet", "Ursox", "Ursomax", "Pyloflush",
+    "Panzynorm HS", "Colospa X", "Colospa", "Prohance Liv", "Prohance",
+    "Pantoprazole", "Rabeprazole", "Ranitidine"
+]
 
 # ✅ Check GPU Availability
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -67,6 +72,7 @@ def get_medicine_details(medicine_name, patient_info, lang="en"):
         - Interactions with other medications
         - Additional precautions
         - Alternative medicines
+        - sugges what type of food eat and clothes
 
         Ensure the explanation is patient-friendly.
         """
@@ -75,6 +81,33 @@ def get_medicine_details(medicine_name, patient_info, lang="en"):
         return translated_response if translated_response else "No details available."
     except Exception as e:
         return f"❌ Error fetching details: {e}"
+    
+    # ✅ Function: Chatbot Response
+def chatbot_response(user_input, medicine_name, patient_info, lang="en"):
+    try:
+        model = genai.GenerativeModel("gemini-1.5-pro")
+        prompt = f"""
+        Patient's Question: "{user_input}"
+        
+        *Medicine Details:*
+        - Name: {medicine_name}
+        
+        *Patient Details:*
+        - Age: {patient_info.get('Age', 'Unknown')} years
+        - Weight: {patient_info.get('Weight', 'Unknown')} kg
+        - Gender: {patient_info.get('Gender', 'Unknown')}
+        - Current Illness: {patient_info.get('Current Disease', 'Not specified')}
+        - Other Medications: {patient_info.get('Other Tablets', 'None')}
+        
+        *Instructions for AI:*
+        - Provide a concise, clear, and patient-friendly answer.
+        - Ensure the response is relevant to the medicine and patient details.
+        - Avoid giving general medical advice or instructions without context.
+        """
+        response = model.generate_content(prompt)
+        return translate_text(response.text, lang)
+    except Exception as e:
+        return f"❌ Error: {e}"
 
 # ✅ Function: Voice Input
 def voice_input():
@@ -91,40 +124,15 @@ def voice_input():
             return "Speech recognition service is unavailable."
         except Exception as e:
             return f"Error: {e}"
+        
+        # ✅ Function: Chatbot Response
+
 
 # ✅ Function: Text-to-Speech using espeak
 def speak_text(text, lang="en"):
     os.system(f"espeak -v {lang} '{text}'")
 
-# ✅ Function: Chatbot Response
-def chatbot_response(user_input, medicine_name, patient_info, lang="en"):
-    try:
-        model = genai.GenerativeModel("gemini-1.5-pro")
-        prompt = f"""
-        Patient's Question: "{user_input}"
-        
-        **Medicine Details:**
-        - Name: {medicine_name}
 
-        **Patient Details:**
-        - Age: {patient_info.get('Age', 'Unknown')} years
-        - Weight: {patient_info.get('Weight', 'Unknown')} kg
-        - Gender: {patient_info.get('Gender', 'Unknown')}
-        - Current Illness: {patient_info.get('Current Disease', 'Not specified')}
-        - Other Medications: {patient_info.get('Other Tablets', 'None')}
-
-        **Instructions for AI:**
-        - Answer the patient's question accurately.
-        - Use only the provided medicine and patient details.
-        - Avoid general medical advice.
-
-        Now, generate the most accurate and relevant response.
-        """
-        response = model.generate_content(prompt)
-        return translate_text(response.text, lang)
-
-    except Exception as e:
-        return f"❌ Error: {e}"
 
 # ✅ Streamlit UI
 st.title("Personalized AI Medical Advice")
@@ -152,7 +160,7 @@ if 'image' in locals():
     st.write(medicine_name)
     
     if medicine_name != "Unknown Medicine":
-        st.subheader("🧑‍⚕️ Patient Information")
+        st.subheader("🧑‍⚕ Patient Information")
         user_lang = st.text_input("🌍 Preferred Language (e.g., en, ta, hi)", "en")
         translated_labels = {
             "Age": translate_text("Age", user_lang),
@@ -185,15 +193,21 @@ if st.button("🔎 Get Medicine Details"):
     if st.button("🔊 Read Aloud", key="read_medicine"):
         os.system(f'espeak -v {user_lang} "{details}"')
 
-        # ✅ Chatbot Interaction
-        user_query = st.text_input("💬 Ask AI Doctor")
-        if st.button("Ask Now"):
-            chatbot_reply = chatbot_response(user_query, medicine_name, patient_info, user_lang)
-            st.write("🤖 AI Doctor:", chatbot_reply)
-            if st.button("🔊 Read Chatbot Response"):
-                speak_text(chatbot_reply, user_lang)
+user_query = st.text_input("💬 Ask AI Doctor")
+
+if st.button("Ask Now"):
+    if not user_query.strip():
+        st.warning("⚠ Please enter a question.")
+    else:
+        chatbot_reply = chatbot_response(user_query, medicine_name, patient_info, user_lang)
+        
+        if chatbot_reply:
+            st.subheader("🤖 AI Doctor:")
+            st.write(chatbot_reply)
+        else:
+            st.error("❌ No response from AI. Please try again.")
 
 # Project Credits at the Bottom
 st.markdown("---")  
-st.markdown("### **Project Developed By:**")
-st.markdown(" **VIJAY P.K., VIGNESH, and MOHAMMED FAIZAL**")
+st.markdown("### *Project Developed By:*")
+st.markdown(" *VIJAY, P.K. VIGNESH, and MOHAMMED FAIZAL*")
