@@ -9,11 +9,14 @@ from langdetect import detect
 from googletrans import Translator
 import speech_recognition as sr
 import os
+import subprocess  # For text-to-speech
+from gtts import gTTS
+import tempfile
 
 # ✅ Configure Gemini API Keys
 API_KEYS = [
-    "AIzaSyA8IoYsJdB3TDStComCd8IzAapu5zjwI_Q",  # First API Key
-    "AIzaSyB6wxK4bXYVc2P-6Xmrw8iJxwryMF7pOVc"   # Second API Key
+    "AIzaSyAsXaGluwAGWAcO-RiiIwpRT-TQvU6AiCg",  # First API Key
+    "AIzaSyA-YPH_WppJawH4D_hNIrDShD9rn1MTfRg"   # Second API Key
 ]
 
 current_api_index = 0  # Start with the first API key
@@ -117,17 +120,17 @@ def chatbot_response(user_input, medicine_name, patient_info, lang="en"):
             prompt = f"""
             Patient's Question: "{user_input}"
             
-            **Medicine Details:**
+            Medicine Details:
             - Name: {medicine_name}
             
-            **Patient Details:**
+            Patient Details:
             - Age: {patient_info.get('Age', 'Unknown')} years
             - Weight: {patient_info.get('Weight', 'Unknown')} kg
             - Gender: {patient_info.get('Gender', 'Unknown')}
             - Current Illness: {patient_info.get('Current Disease', 'Not specified')}
             - Other Medications: {patient_info.get('Other Tablets', 'None')}
             
-            **Instructions for AI:**
+            Instructions for AI:
             - Provide a concise, clear, and patient-friendly answer.
             - Ensure the response is relevant to the medicine and patient details.
             - Avoid giving general medical advice or instructions without context.
@@ -143,11 +146,19 @@ def chatbot_response(user_input, medicine_name, patient_info, lang="en"):
     return "❌ All API keys exhausted. Try again later."
 
 # ✅ Function: Voice Input
+
+# Initialize the recognizer globally
+recognizer = sr.Recognizer()
+
 def voice_input():
     with sr.Microphone() as source:
         st.write("🎧 Speak now...")
-        recognizer.adjust_for_ambient_noise(source)  # Reduce background noise
+
+        # Adjust for ambient noise
+        recognizer.adjust_for_ambient_noise(source)
+
         try:
+            # Listen for user input with a timeout
             audio = recognizer.listen(source, timeout=5)
             text = recognizer.recognize_google(audio)
             return text
@@ -158,9 +169,6 @@ def voice_input():
         except Exception as e:
             return f"Error: {e}"
 
-# ✅ Function: Text-to-Speech using espeak
-def speak_text(text, lang="en"):
-    os.system(f"espeak -v {lang} '{text}'")
 
 
 # ✅ Streamlit UI
@@ -182,6 +190,7 @@ else:
         image = Image.open(uploaded_file)
 
 # ✅ Step 2: Show Extracted Text & Medicine Name
+medicine_name = "Unknown Medicine"
 if image:
     st.image(image, caption="📷 Uploaded Image", use_column_width=True, output_format="auto")
     extracted_text = extract_text(image)
@@ -192,85 +201,63 @@ if image:
     st.subheader("🔍 Detected Medicine")
     st.success(medicine_name)
 
-    if medicine_name != "Unknown Medicine":
-        # ✅ Step 3: Show Patient Information Form
-        st.subheader("🧑‍⚕️ Patient Information")
-        user_lang = st.text_input("🌍 Preferred Language (e.g., en, ta, hi)", "en")
+# ✅ Step 3: Show Patient Information Form if Medicine is Detected
+patient_info = {}
+if medicine_name != "Unknown Medicine":
+    st.subheader("🧑‍⚕️ Patient Information")
+    user_lang = st.text_input("🌍 Preferred Language (e.g., en, ta, hi)", "en")
 
-        translated_labels = {
-            "Age": translate_text("Age", user_lang),
-            "Weight": translate_text("Weight (kg)", user_lang),
-            "Gender": translate_text("Gender", user_lang),
-            "Previous Disease History": translate_text("Any previous diseases?", user_lang),
-            "Current Disease": translate_text("What are you currently suffering from?", user_lang),
-            "Other Tablets": translate_text("Any other tablets consumed regularly?", user_lang)
-        }
+    translated_labels = {
+        "Age": translate_text("Age", user_lang),
+        "Weight": translate_text("Weight (kg)", user_lang),
+        "Gender": translate_text("Gender", user_lang),
+        "Previous Disease History": translate_text("Any previous diseases?", user_lang),
+        "Current Disease": translate_text("What are you currently suffering from?", user_lang),
+        "Other Tablets": translate_text("Any other tablets consumed regularly?", user_lang)
+    }
 
-        use_voice = st.checkbox("🎤 Use Voice Input Instead of Typing")
+    use_voice = st.checkbox("🎤 Use Voice Input Instead of Typing")
 
-        def get_input(label):
-            return voice_input() if use_voice else st.text_input(f"🔹 {label}")
+    def get_input(label):
+        return voice_input() if use_voice else st.text_input(f"🔹 {label}")
 
-        patient_info = {
-            "Age": get_input(translated_labels['Age']),
-            "Weight": get_input(translated_labels['Weight']),
-            "Gender": st.radio(f"🔹 {translated_labels['Gender']}", ["Male", "Female", "Other"], horizontal=True),
-            "Previous Disease History": get_input(translated_labels['Previous Disease History']),
-            "Current Disease": get_input(translated_labels['Current Disease']),
-            "Other Tablets": get_input(translated_labels['Other Tablets'])
-        }
+    patient_info = {
+        "Age": get_input(translated_labels['Age']),
+        "Weight": get_input(translated_labels['Weight']),
+        "Gender": st.radio(f"🔹 {translated_labels['Gender']}", ["Male", "Female", "Other"], horizontal=True),
+        "Previous Disease History": get_input(translated_labels['Previous Disease History']),
+        "Current Disease": get_input(translated_labels['Current Disease']),
+        "Other Tablets": get_input(translated_labels['Other Tablets'])
+    }
 
-        # ✅ Step 4: Get Medicine Details
-        if st.button("🔎 Get Medicine Details"):
-            details = get_medicine_details(medicine_name, patient_info, user_lang)
-            st.subheader("📋 Medicine Details & Suitability")
-            st.info(details)
+# ✅ Step 4: Get Medicine Details
+if medicine_name != "Unknown Medicine" and patient_info and st.button("🔎 Get Medicine Details", key="get_medicine_details"):
+    details = get_medicine_details(medicine_name, patient_info, user_lang)
+    
+    # ✅ Store details in session state
+    st.session_state["medicine_details"] = details
 
-            if st.button("🔊 Read Aloud", key="read_medicine"):
-                os.system(f'espeak -v {user_lang} "{details}"')
+# ✅ Step 5: Always Show Medicine Details If Available
+if "medicine_details" in st.session_state and st.session_state["medicine_details"]:
+    st.subheader("📋 Medicine Details & Suitability")
+    st.info(st.session_state["medicine_details"])
+
+    # ✅ Show "Read Aloud" Button After Details are Fetched
+    if st.button("🔊 Read Aloud", key="read_aloud"):
+        with st.spinner("🔄 Generating audio... Please wait"):
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio:
+                    tts = gTTS(st.session_state["medicine_details"], lang=user_lang)
+                    temp_audio_path = temp_audio.name
+                    tts.save(temp_audio_path)
                 
-# ✅ Inline CSS for Chatbot UI
-st.markdown(
-    """
-    <style>
-     
-        .user-input {
-            width: 100%;
-            border: 2px solid #0d6efd;
-            border-radius: 8px;
-            padding: 10px;
-            font-size: 16px;
-            background-color: white;
-            color: #333;
-        }
-        .chatbot-reply {
-            background-color: #d1e7dd;
-            color: #155724;
-            padding: 15px;
-            border-radius: 10px;
-            font-size: 16px;
-            margin-top: 10px;
-            box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
-        }
-        .button-ask {
-            background-color: #198754;
-            color: white;
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-size: 16px;
-            border: none;
-            cursor: pointer;
-            margin-top: 10px;
-        }
-        .button-ask:hover {
-            background-color: #157347;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+                st.audio(temp_audio_path, format="audio/mp3")
+                st.success("🔊 Reading aloud...")
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
 
-# ✅ Chatbot Section
+
+# ✅ Chatbot Section (Always Visible)
 st.subheader("🤖 Chat with AI Doctor")
 st.markdown('<div class="chat-container">', unsafe_allow_html=True)
 
@@ -280,18 +267,17 @@ user_query = st.text_input(
     key="chat_input"
 )
 
-if st.button("Ask Now", key="ask_now", help="Click to get an AI Doctor response"):
+if st.button("Ask Now", key="ask_now"):
     if not user_query.strip():
         st.warning("⚠ Please enter a question.")
     else:
         chatbot_reply = chatbot_response(user_query, medicine_name, patient_info, user_lang)
-        
         if chatbot_reply:
             st.markdown(f'<div class="chatbot-reply">🤖 AI Doctor: {chatbot_reply}</div>', unsafe_allow_html=True)
         else:
             st.error("❌ No response from AI. Please try again.")
 
-st.markdown('</div>', unsafe_allow_html=True)  # Close chatbot container
+st.markdown('</div>', unsafe_allow_html=True)
 
 # ✅ Project Credits
 st.markdown("---")
