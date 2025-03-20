@@ -10,22 +10,27 @@ from googletrans import Translator
 import speech_recognition as sr
 import os
 
-# ✅ Configure Gemini API
-GEMINI_API_KEY = "AIzaSyB6wxK4bXYVc2P-6Xmrw8iJxwryMF7pOVc"  # Replace with actual API key
-genai.configure(api_key=GEMINI_API_KEY)
+# ✅ Configure Gemini API Keys
+API_KEYS = [
+    "AIzaSyA8IoYsJdB3TDStComCd8IzAapu5zjwI_Q",  # First API Key
+    "AIzaSyB6wxK4bXYVc2P-6Xmrw8iJxwryMF7pOVc"   # Second API Key
+]
+
+current_api_index = 0  # Start with the first API key
+
+def switch_api_key():
+    """Switch to the next API key when one is exhausted."""
+    global current_api_index
+    current_api_index = (current_api_index + 1) % len(API_KEYS)  # Rotate between keys
+    genai.configure(api_key=API_KEYS[current_api_index])  # Update API key
+
+# ✅ Initialize the first API key
+genai.configure(api_key=API_KEYS[current_api_index])
 
 # ✅ Load EasyOCR reader
-reader = easyocr.Reader(['en'])  # Recognizes text only in English
+reader = easyocr.Reader(['en'])
 translator = Translator()
 recognizer = sr.Recognizer()
-# ✅ Medicine Keywords for Detection
-MEDICINE_KEYWORDS = [
-    "Paracetamol", "Ibuprofen", "Aspirin", "Metformin", "Amoxicillin",
-    "Ciprofloxacin", "Azithromycin", "Cetirizine", "Dolo", "Combiflam",
-    "Happi", "Ursox 300 Tablet", "Ursox", "Ursomax", "Pyloflush",
-    "Panzynorm HS", "Colospa X", "Colospa", "Prohance Liv", "Prohance",
-    "Pantoprazole", "Rabeprazole", "Ranitidine"
-]
 
 # ✅ Check GPU Availability
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -44,69 +49,98 @@ def extract_text(image):
     extracted_text = " ".join(result) if result else "No text detected."
     return translate_text(extracted_text)
 
-# ✅ Function: Identify Medicine Name
+# ✅ Function: Identify Medicine Name using Gemini API
 def identify_medicine(extracted_text):
-    for keyword in MEDICINE_KEYWORDS:
-        if keyword.lower() in extracted_text.lower():
-            return keyword
-    return "Unknown Medicine"
+    """Extracts medicine name from text using Gemini API with auto key switching."""
+    for _ in range(len(API_KEYS)):  # Try both API keys
+        try:
+            model = genai.GenerativeModel("gemini-1.5-pro")
+            prompt = f"""
+            From the following text, extract the name of the medicine or tablet:
+            "{extracted_text}"
+            Return only the medicine name.
+            """
+            response = model.generate_content(prompt)
+            return response.text.strip()
+        except Exception as e:
+            if "429" in str(e):  # If quota exceeded, switch API key
+                switch_api_key()
+            else:
+                return f"❌ Error identifying medicine: {e}"
 
+    return "❌ All API keys exhausted. Try again later."
+
+# ✅ Function: Get Medicine Details
 def get_medicine_details(medicine_name, patient_info, lang="en"):
-    try:
-        model = genai.GenerativeModel("gemini-1.5-pro")
-        prompt = f"""
-        A patient needs information about the medicine "{medicine_name}". Here are their details:
+    """Fetches medicine details with auto API switching."""
+    for _ in range(len(API_KEYS)):  # Try both API keys
+        try:
+            model = genai.GenerativeModel("gemini-1.5-pro")
+            prompt = f"""
+            A patient needs information about the medicine "{medicine_name}". Here are their details:
 
-        - Age: {patient_info['Age']} years
-        - Weight: {patient_info['Weight']} kg
-        - Gender: {patient_info['Gender']}
-        - Previous Conditions: {patient_info['Previous Disease History']}
-        - Current Illness: {patient_info['Current Disease']}
-        - Other Tablets Consumed Regularly: {patient_info['Other Tablets']}
-        
-        Provide a detailed yet easy-to-understand response covering:
-        - How {medicine_name} works and what it is used for
-        - Recommended dosage and administration guidelines
-        - Possible side effects
-        - Interactions with other medications
-        - Additional precautions
-        - Alternative medicines
-        - sugges what type of food eat and clothes
+            - Age: {patient_info['Age']} years
+            - Weight: {patient_info['Weight']} kg
+            - Gender: {patient_info['Gender']}
+            - Previous Conditions: {patient_info['Previous Disease History']}
+            - Current Illness: {patient_info['Current Disease']}
+            - Other Tablets Consumed Regularly: {patient_info['Other Tablets']}
+            
+            Provide a detailed yet easy-to-understand response covering:
+            - How {medicine_name} works and what it is used for
+            - Recommended dosage and administration guidelines
+            - Possible side effects
+            - Interactions with other medications
+            - Additional precautions
+            - Alternative medicines
+            - Suggested diet and clothing precautions
 
-        Ensure the explanation is patient-friendly.
-        """
-        response = model.generate_content(prompt)
-        translated_response = translator.translate(response.text, dest=lang).text
-        return translated_response if translated_response else "No details available."
-    except Exception as e:
-        return f"❌ Error fetching details: {e}"
-    
-    # ✅ Function: Chatbot Response
+            Ensure the explanation is patient-friendly.
+            """
+            response = model.generate_content(prompt)
+            translated_response = translator.translate(response.text, dest=lang).text
+            return translated_response if translated_response else "No details available."
+        except Exception as e:
+            if "429" in str(e):  # If quota exceeded, switch API key
+                switch_api_key()
+            else:
+                return f"❌ Error fetching details: {e}"
+
+    return "❌ All API keys exhausted. Try again later."
+
+# ✅ Function: Chatbot Response
 def chatbot_response(user_input, medicine_name, patient_info, lang="en"):
-    try:
-        model = genai.GenerativeModel("gemini-1.5-pro")
-        prompt = f"""
-        Patient's Question: "{user_input}"
-        
-        **Medicine Details:**
-        - Name: {medicine_name}
-        
-        **Patient Details:**
-        - Age: {patient_info.get('Age', 'Unknown')} years
-        - Weight: {patient_info.get('Weight', 'Unknown')} kg
-        - Gender: {patient_info.get('Gender', 'Unknown')}
-        - Current Illness: {patient_info.get('Current Disease', 'Not specified')}
-        - Other Medications: {patient_info.get('Other Tablets', 'None')}
-        
-        **Instructions for AI:**
-        - Provide a concise, clear, and patient-friendly answer.
-        - Ensure the response is relevant to the medicine and patient details.
-        - Avoid giving general medical advice or instructions without context.
-        """
-        response = model.generate_content(prompt)
-        return translate_text(response.text, lang)
-    except Exception as e:
-        return f"❌ Error: {e}"
+    """Handles chatbot responses using Gemini API with auto key switching."""
+    for _ in range(len(API_KEYS)):  # Try both API keys
+        try:
+            model = genai.GenerativeModel("gemini-1.5-pro")
+            prompt = f"""
+            Patient's Question: "{user_input}"
+            
+            **Medicine Details:**
+            - Name: {medicine_name}
+            
+            **Patient Details:**
+            - Age: {patient_info.get('Age', 'Unknown')} years
+            - Weight: {patient_info.get('Weight', 'Unknown')} kg
+            - Gender: {patient_info.get('Gender', 'Unknown')}
+            - Current Illness: {patient_info.get('Current Disease', 'Not specified')}
+            - Other Medications: {patient_info.get('Other Tablets', 'None')}
+            
+            **Instructions for AI:**
+            - Provide a concise, clear, and patient-friendly answer.
+            - Ensure the response is relevant to the medicine and patient details.
+            - Avoid giving general medical advice or instructions without context.
+            """
+            response = model.generate_content(prompt)
+            return translate_text(response.text, lang)
+        except Exception as e:
+            if "429" in str(e):  # If quota exceeded, switch API key
+                switch_api_key()
+            else:
+                return f"❌ Error: {e}"
+
+    return "❌ All API keys exhausted. Try again later."
 
 # ✅ Function: Voice Input
 def voice_input():
@@ -123,9 +157,6 @@ def voice_input():
             return "Speech recognition service is unavailable."
         except Exception as e:
             return f"Error: {e}"
-        
-        # ✅ Function: Chatbot Response
-
 
 # ✅ Function: Text-to-Speech using espeak
 def speak_text(text, lang="en"):
@@ -266,4 +297,3 @@ st.markdown('</div>', unsafe_allow_html=True)  # Close chatbot container
 st.markdown("---")
 st.markdown("### **👨‍💻 Project Developed By:**")
 st.markdown(" **VIJAY, P.K. VIGNESH, and MOHAMMED FAIZAL**")
-
